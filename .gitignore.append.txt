@@ -1,0 +1,3 @@
+# Tambahkan baris ini ke .gitignore yang sudah ada, jangan hapus aturan lama.
+.env.local
+.env.*.local
