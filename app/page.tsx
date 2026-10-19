@@ -41,6 +41,7 @@ type DashboardData = {
     rowCount: number;
     totalAmount: number;
     averageAmount: number;
+    averagePpbjCount: number;
     missingAmountCount: number;
   };
   monthlyStats: MonthlyStat[];
@@ -60,6 +61,9 @@ type DashboardData = {
     sourceRange: string | null;
   };
 };
+
+const TABLE_PAGE_SIZE = 15;
+type TableKey = "monthly" | "yearly" | "data" | "reports";
 
 const MONTHS = [
   "Januari", "Februari", "Maret", "April", "Mei", "Juni",
@@ -137,6 +141,52 @@ function StatCard({ icon, label, value, note, tone }: { icon: string; label: str
   return <article className="mk-stat-card"><div className={`mk-stat-icon mk-tone-${tone}`}><Icon name={icon} size={19}/></div><div className="mk-stat-label">{label}</div><div className="mk-stat-value">{value}</div><div className="mk-stat-note">{note}</div></article>;
 }
 
+function TablePagination({
+  totalItems,
+  pageIndex,
+  onPageChange,
+  rightNote,
+}: {
+  totalItems: number;
+  pageIndex: number;
+  onPageChange: (page: number) => void;
+  rightNote?: string;
+}) {
+  const pageCount = Math.max(1, Math.ceil(totalItems / TABLE_PAGE_SIZE));
+  const safePage = Math.min(Math.max(0, pageIndex), pageCount - 1);
+  const startItem = totalItems === 0 ? 0 : safePage * TABLE_PAGE_SIZE + 1;
+  const endItem = Math.min(totalItems, (safePage + 1) * TABLE_PAGE_SIZE);
+  const visiblePageCount = Math.min(5, pageCount);
+  const startPage = Math.max(0, Math.min(pageCount - visiblePageCount, safePage - 2));
+  const pageNumbers = Array.from({ length: visiblePageCount }, (_, index) => startPage + index);
+
+  return (
+    <div className="mk-table-footer">
+      <span className="mk-pagination-count">
+        Menampilkan <strong>{INTEGER.format(startItem)}–{INTEGER.format(endItem)}</strong> dari <strong>{INTEGER.format(totalItems)}</strong> baris
+      </span>
+      {rightNote ? <span className="mk-pagination-note">{rightNote}</span> : null}
+      {pageCount > 1 ? (
+        <span className="mk-table-pagination" aria-label="Navigasi halaman tabel">
+          <button type="button" disabled={safePage === 0} onClick={() => onPageChange(safePage - 1)} aria-label="Halaman sebelumnya">‹</button>
+          {pageNumbers.map((pageNumber) => (
+            <button
+              key={pageNumber}
+              type="button"
+              className={pageNumber === safePage ? "current" : ""}
+              aria-current={pageNumber === safePage ? "page" : undefined}
+              aria-label={`Halaman ${pageNumber + 1}`}
+              disabled={pageNumber === safePage}
+              onClick={() => onPageChange(pageNumber)}
+            >{pageNumber + 1}</button>
+          ))}
+          <button type="button" disabled={safePage >= pageCount - 1} onClick={() => onPageChange(safePage + 1)} aria-label="Halaman berikutnya">›</button>
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 function expenseDisplay(items: ExpenseItem[]) {
   const positive = items.filter((item) => item.amount > 0);
   if (positive.length <= 5) return positive;
@@ -152,6 +202,7 @@ export default function DashboardPage() {
   const [period, setPeriod] = useState<string>("2026-10");
   const [activeView, setActiveView] = useState<ViewKey>("dashboard");
   const [query, setQuery] = useState("");
+  const [tablePages, setTablePages] = useState<Record<TableKey, number>>({ monthly: 0, yearly: 0, data: 0, reports: 0 });
   const [data, setData] = useState<DashboardData | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncFinished, setSyncFinished] = useState(false);
@@ -168,6 +219,10 @@ export default function DashboardPage() {
     // Resolve the initial month only in the browser after hydration.
     setPeriod(currentPeriod());
   }, []);
+
+  useEffect(() => {
+    setTablePages({ monthly: 0, yearly: 0, data: 0, reports: 0 });
+  }, [period, query, activeView, syncVersion]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -342,11 +397,18 @@ export default function DashboardPage() {
   const annualRowCount = data?.kpis.rowCount ?? 0;
   const annualTotalAmount = data?.kpis.totalAmount ?? 0;
   const annualAverageAmount = data?.kpis.averageAmount ?? 0;
+  const setTablePage = (view: TableKey, page: number) => {
+    setTablePages((current) => ({ ...current, [view]: Math.max(0, page) }));
+  };
+  const monthlyPageRows = filteredRows.slice(tablePages.monthly * TABLE_PAGE_SIZE, (tablePages.monthly + 1) * TABLE_PAGE_SIZE);
+  const yearlyPageRows = annualRows.slice(tablePages.yearly * TABLE_PAGE_SIZE, (tablePages.yearly + 1) * TABLE_PAGE_SIZE);
+  const dataPageRows = filteredRows.slice(tablePages.data * TABLE_PAGE_SIZE, (tablePages.data + 1) * TABLE_PAGE_SIZE);
+  const reportPageRows = annualRows.slice(tablePages.reports * TABLE_PAGE_SIZE, (tablePages.reports + 1) * TABLE_PAGE_SIZE);
 
   return (
     <div className="mk-app-shell">
       <aside className="mk-sidebar">
-        <div className="mk-brand"><div className="mk-brand-mark"><span/></div><div><div className="mk-brand-name">Rekap PPBJ<span>.</span></div><div className="mk-brand-subtitle">Marketing</div></div></div>
+        <div className="mk-brand"><div className="mk-brand-mark"><span/></div><div><div className="mk-brand-name">marketing<span>.</span></div><div className="mk-brand-subtitle">OPERATIONS HUB</div></div></div>
         <div className="mk-sidebar-label">WORKSPACE</div>
         <nav className="mk-nav" aria-label="Navigasi utama">
           {NAV_ITEMS.filter((item) => item.group === "workspace").map((item) => <button key={item.key} type="button" title={VIEW_META[item.key].label} aria-current={activeView === item.key ? "page" : undefined} className={`mk-nav-item ${activeView === item.key ? "active" : ""}`} onClick={() => navigateTo(item.key)}><Icon name={item.icon} size={18}/><span>{VIEW_META[item.key].label}</span>{activeView === item.key && <span className="mk-nav-indicator"/>}</button>)}
@@ -363,14 +425,14 @@ export default function DashboardPage() {
             <div className="mk-source-progress"><span style={{ width: syncing ? "65%" : dbOnline ? "100%" : "12%" }}/></div>
             <div className="mk-source-footer"><span>Sinkron terakhir</span><b>{formatSyncDate(data?.sync.lastSuccessAt ?? null)}</b></div>
           </div>
-          <div className="mk-profile"><div className="mk-profile-info"><strong>Divisi Marketing</strong><span>Workspace internal</span></div><span className="mk-profile-menu">···</span></div>
+          <div className="mk-profile"><div className="mk-avatar">MK</div><div className="mk-profile-info"><strong>Divisi Marketing</strong><span>Workspace internal</span></div><span className="mk-profile-menu">···</span></div>
         </div>
       </aside>
 
       <main className="mk-main" id="dashboard">
         <header className="mk-topbar">
           <div className="mk-breadcrumb"><span>Workspace</span><span className="mk-breadcrumb-slash">/</span><strong>{viewMeta.label}</strong></div>
-          <div className="mk-topbar-actions"><span className={`mk-preview-badge ${syncing ? "is-syncing" : syncError ? "is-offline" : dbOnline ? "is-live" : "is-offline"}`}><span/>{syncing ? "SYNCING" : syncError ? "SYNC ERROR" : dbOnline ? "LIVE · MYSQL" : "OFFLINE"}</span></div>
+          <div className="mk-topbar-actions"><span className={`mk-preview-badge ${syncing ? "is-syncing" : syncError ? "is-offline" : dbOnline ? "is-live" : "is-offline"}`}><span/>{syncing ? "SYNCING" : syncError ? "SYNC ERROR" : dbOnline ? "LIVE · MYSQL" : "OFFLINE"}</span><button className="mk-icon-button" aria-label="Notifikasi" title="Notifikasi"><Icon name="bell" size={18}/><i/></button><div className="mk-top-avatar">MK</div></div>
         </header>
         <nav className="mk-mobile-nav" aria-label="Navigasi mobile">
           {NAV_ITEMS.map((item) => <button key={item.key} type="button" aria-current={activeView === item.key ? "page" : undefined} className={activeView === item.key ? "active" : ""} onClick={() => navigateTo(item.key)}><Icon name={item.icon} size={15}/><span>{VIEW_META[item.key].label}</span></button>)}
@@ -398,7 +460,7 @@ export default function DashboardPage() {
           <section className="mk-stats-grid" aria-label={`Ringkasan ${data?.periodLabel ?? period}`}>
             <StatCard icon="receipt" label="Total PPBJ" value={data ? INTEGER.format(data.kpis.ppbjCount) : "—"} note={`${INTEGER.format(data?.kpis.rowCount ?? 0)} baris detail${loadingData ? " · memuat" : ""}`} tone="green"/>
             <StatCard icon="wallet" label="Total Nilai Pengajuan" value={data ? IDR.format(data.kpis.totalAmount) : "—"} note="Akumulasi kolom Jumlah Harga" tone="blue"/>
-            <StatCard icon="chart" label="Rata-rata per PPBJ" value={data ? IDR.format(data.kpis.averageAmount) : "—"} note="Total nilai ÷ PPBJ unik" tone="purple"/>
+            <StatCard icon="chart" label="Rata-rata per PPBJ" value={data ? IDR.format(data.kpis.averageAmount) : "—"} note={`${INTEGER.format(data?.kpis.averagePpbjCount ?? 0)} PPBJ dengan nominal`} tone="purple"/>
             <StatCard icon="clock" label="Nominal Belum Diisi" value={data ? INTEGER.format(data.kpis.missingAmountCount) : "—"} note="Baris pada periode terpilih" tone="amber"/>
           </section>
 
@@ -424,8 +486,8 @@ export default function DashboardPage() {
 
           <section className="mk-panel mk-table-panel">
             <div className="mk-panel-header mk-table-header"><div><h2>Detail pengajuan</h2><p>Baris detail PPBJ pada {MONTHS[selectedMonth - 1]} {selectedYear}</p></div><div className="mk-table-actions"><label className="mk-search-box"><Icon name="search" size={16}/><input type="search" placeholder="Cari PPBJ, barang, pembuat..." value={query} onChange={(event) => setQuery(event.target.value)}/></label><button className="mk-secondary-button" onClick={exportExcel} disabled={!canExport}><Icon name="download" size={15}/>{exporting ? "Menyiapkan..." : "Export Excel"}</button></div></div>
-            <div className="mk-table-scroll"><table className="mk-table"><thead><tr><th>No. PPBJ</th><th>Tanggal</th><th>Nama barang / jasa</th><th>Pembuat</th><th>Beban biaya</th><th>Jumlah harga</th></tr></thead><tbody>{filteredRows.map((row) => <tr key={row.sourceRowNumber}><td><span className="mk-ppbj-id">{row.noPpbj}</span></td><td className="mk-date-cell">{formatDate(row.date)}</td><td><strong className="mk-item-name">{row.item || "Belum diisi"}</strong><span className="mk-item-sub">{row.quantity !== null ? `${INTEGER.format(row.quantity)} ${row.unit}`.trim() : "Rincian barang/jasa"}</span></td><td>{row.requester || "Belum diisi"}</td><td><span className="mk-cost-tag">{row.costCenter || "Belum diisi"}</span></td><td className="mk-amount-cell">{row.amount === null ? "Belum diisi" : IDR.format(row.amount)}</td></tr>)}{filteredRows.length === 0 && <tr><td colSpan={6} className="mk-empty-row">{loadingData ? "Memuat data dari MySQL..." : "Tidak ada data PPBJ untuk periode atau pencarian ini."}</td></tr>}</tbody></table></div>
-            <div className="mk-table-footer"><span>Menampilkan <strong>{INTEGER.format(filteredRows.length)}</strong> baris dari <strong>{INTEGER.format(data?.kpis.rowCount ?? 0)}</strong> baris periode ini</span><span className="mk-table-pagination"><button disabled>‹</button><button className="current" disabled>1</button><button disabled>›</button></span></div>
+            <div className="mk-table-scroll"><table className="mk-table"><thead><tr><th>No. PPBJ</th><th>Tanggal</th><th>Nama barang / jasa</th><th>Pembuat</th><th>Beban biaya</th><th>Jumlah harga</th></tr></thead><tbody>{monthlyPageRows.map((row) => <tr key={row.sourceRowNumber}><td><span className="mk-ppbj-id">{row.noPpbj}</span></td><td className="mk-date-cell">{formatDate(row.date)}</td><td><strong className="mk-item-name">{row.item || "Belum diisi"}</strong><span className="mk-item-sub">{row.quantity !== null ? `${INTEGER.format(row.quantity)} ${row.unit}`.trim() : "Rincian barang/jasa"}</span></td><td>{row.requester || "Belum diisi"}</td><td><span className="mk-cost-tag">{row.costCenter || "Belum diisi"}</span></td><td className="mk-amount-cell">{row.amount === null ? "Belum diisi" : IDR.format(row.amount)}</td></tr>)}{filteredRows.length === 0 && <tr><td colSpan={6} className="mk-empty-row">{loadingData ? "Memuat data dari MySQL..." : "Tidak ada data PPBJ untuk periode atau pencarian ini."}</td></tr>}</tbody></table></div>
+            <TablePagination totalItems={filteredRows.length} pageIndex={tablePages.monthly} onPageChange={(page) => setTablePage("monthly", page)} />
           </section>
           </>}
 
@@ -433,7 +495,7 @@ export default function DashboardPage() {
             <section className="mk-stats-grid" aria-label={`Ringkasan tahunan ${selectedYear}`}>
               <StatCard icon="receipt" label="Total PPBJ Tahunan" value={data ? INTEGER.format(annualTotalPpbj) : "—"} note={`${INTEGER.format(annualRowCount)} baris detail dalam tahun terpilih`} tone="green"/>
               <StatCard icon="wallet" label="Total Nilai Tahunan" value={data ? IDR.format(annualTotalAmount) : "—"} note="Akumulasi seluruh bulan dalam tahun" tone="blue"/>
-              <StatCard icon="chart" label="Rata-rata per PPBJ" value={data ? IDR.format(annualAverageAmount) : "—"} note="Total nilai ÷ PPBJ unik tahunan" tone="purple"/>
+              <StatCard icon="chart" label="Rata-rata per PPBJ" value={data ? IDR.format(annualAverageAmount) : "—"} note={`${INTEGER.format(data?.kpis.averagePpbjCount ?? 0)} PPBJ dengan nominal`} tone="purple"/>
               <StatCard icon="clock" label="Nominal Belum Diisi" value={data ? INTEGER.format(data.kpis.missingAmountCount) : "—"} note="Baris dalam tahun terpilih" tone="amber"/>
             </section>
             <section className="mk-content-grid">
@@ -445,12 +507,12 @@ export default function DashboardPage() {
               </article>
               <article className="mk-panel mk-cost-panel"><div className="mk-panel-header"><div><h2>Komposisi biaya tahunan</h2><p>Berdasarkan Beban Biaya</p></div></div><div className="mk-donut-wrap"><div className="mk-donut" style={{ background: donutBackground }}><div className="mk-donut-center"><strong>{IDR.format(annualTotalAmount).replace(",00", "")}</strong><span>Total nilai</span></div></div></div><div className="mk-legend-list">{expenseItems.map((item, index) => <div key={item.category}><span className="mk-legend-square" style={{ background: COLORS[index % COLORS.length] }}/><span title={item.category}>{item.category}</span><strong>{Math.round(item.percent)}%</strong></div>)}{expenseItems.length === 0 && <div className="mk-cost-empty">Belum ada nominal pada tahun ini.</div>}</div></article>
             </section>
-            <section className="mk-panel mk-table-panel"><div className="mk-panel-header mk-table-header"><div><h2>Ringkasan per bulan</h2><p>Total aktivitas dan biaya tiap bulan pada {selectedYear}</p></div><button className="mk-secondary-button" onClick={exportExcel} disabled={!canExport}><Icon name="download" size={15}/>{exporting ? "Menyiapkan..." : "Export Excel tahunan"}</button></div><div className="mk-table-scroll"><table className="mk-table"><thead><tr><th>Bulan</th><th>Jumlah PPBJ</th><th>Baris detail</th><th>Jumlah harga</th><th>Porsi dari total tahun</th><th>Aksi</th></tr></thead><tbody>{annualRows.map((stat) => <tr key={stat.monthNumber}><td><strong className="mk-item-name">{stat.month} {selectedYear}</strong></td><td>{INTEGER.format(stat.count)}</td><td>{INTEGER.format(stat.rowCount)}</td><td className="mk-amount-cell">{IDR.format(stat.amount)}</td><td>{annualTotalAmount > 0 ? `${Math.round((stat.amount / annualTotalAmount) * 100)}%` : "0%"}</td><td><button className="mk-table-link" onClick={() => { setPeriod(`${selectedYear}-${String(stat.monthNumber).padStart(2, "0")}`); navigateTo("monthly"); }}>Lihat bulan →</button></td></tr>)}</tbody></table></div><div className="mk-table-footer"><span><strong>12 bulan</strong> · Tahun {selectedYear}</span><span>Total tahun: <strong>{IDR.format(annualTotalAmount)}</strong></span></div></section>
+            <section className="mk-panel mk-table-panel"><div className="mk-panel-header mk-table-header"><div><h2>Ringkasan per bulan</h2><p>Total aktivitas dan biaya tiap bulan pada {selectedYear}</p></div><button className="mk-secondary-button" onClick={exportExcel} disabled={!canExport}><Icon name="download" size={15}/>{exporting ? "Menyiapkan..." : "Export Excel tahunan"}</button></div><div className="mk-table-scroll"><table className="mk-table"><thead><tr><th>Bulan</th><th>Jumlah PPBJ</th><th>Baris detail</th><th>Jumlah harga</th><th>Porsi dari total tahun</th><th>Aksi</th></tr></thead><tbody>{yearlyPageRows.map((stat) => <tr key={stat.monthNumber}><td><strong className="mk-item-name">{stat.month} {selectedYear}</strong></td><td>{INTEGER.format(stat.count)}</td><td>{INTEGER.format(stat.rowCount)}</td><td className="mk-amount-cell">{IDR.format(stat.amount)}</td><td>{annualTotalAmount > 0 ? `${Math.round((stat.amount / annualTotalAmount) * 100)}%` : "0%"}</td><td><button className="mk-table-link" onClick={() => { setPeriod(`${selectedYear}-${String(stat.monthNumber).padStart(2, "0")}`); navigateTo("monthly"); }}>Lihat bulan →</button></td></tr>)}</tbody></table></div><TablePagination totalItems={annualRows.length} pageIndex={tablePages.yearly} onPageChange={(page) => setTablePage("yearly", page)} rightNote={`Total tahun: ${IDR.format(annualTotalAmount)}`} /></section>
           </>}
 
           {activeView === "data" && <>
             <section className="mk-stats-grid" aria-label="Ringkasan data PPBJ"><StatCard icon="receipt" label="Total PPBJ" value={data ? INTEGER.format(annualTotalPpbj) : "—"} note={`Tahun ${selectedYear}`} tone="green"/><StatCard icon="database" label="Baris detail" value={data ? INTEGER.format(annualRowCount) : "—"} note="Data aktif Marketing" tone="blue"/><StatCard icon="wallet" label="Total nilai" value={data ? IDR.format(annualTotalAmount) : "—"} note="Akumulasi Jumlah Harga" tone="purple"/><StatCard icon="clock" label="Perlu pemeriksaan" value={data ? INTEGER.format(data.quality.invalidDateCount + data.quality.missingAmountCount) : "—"} note="Tanggal atau nominal bermasalah" tone="amber"/></section>
-            <section className="mk-panel mk-table-panel"><div className="mk-panel-header mk-table-header"><div><h2>Semua data PPBJ Marketing</h2><p>Data tahun {selectedYear}, bersumber dari MySQL</p></div><div className="mk-table-actions"><label className="mk-search-box"><Icon name="search" size={16}/><input type="search" placeholder="Cari nomor, barang, pembuat, biaya..." value={query} onChange={(event) => setQuery(event.target.value)}/></label><button className="mk-secondary-button" onClick={exportExcel} disabled={!canExport}><Icon name="download" size={15}/>{exporting ? "Menyiapkan..." : "Export Excel"}</button></div></div><div className="mk-table-scroll"><table className="mk-table"><thead><tr><th>No. PPBJ</th><th>Tanggal</th><th>Nama barang / jasa</th><th>Pembuat</th><th>Divisi</th><th>Beban biaya</th><th>Jumlah harga</th></tr></thead><tbody>{filteredRows.map((row) => <tr key={row.sourceRowNumber}><td><span className="mk-ppbj-id">{row.noPpbj}</span></td><td className="mk-date-cell">{formatDate(row.date)}</td><td><strong className="mk-item-name">{row.item || "Belum diisi"}</strong><span className="mk-item-sub">{row.quantity !== null ? `${INTEGER.format(row.quantity)} ${row.unit}`.trim() : "Rincian barang/jasa"}</span></td><td>{row.requester || "Belum diisi"}</td><td>{row.division || "Belum diisi"}</td><td><span className="mk-cost-tag">{row.costCenter || "Belum diisi"}</span></td><td className="mk-amount-cell">{row.amount === null ? "Belum diisi" : IDR.format(row.amount)}</td></tr>)}{filteredRows.length === 0 && <tr><td colSpan={7} className="mk-empty-row">{loadingData ? "Memuat data dari MySQL..." : "Tidak ada data untuk pencarian ini."}</td></tr>}</tbody></table></div><div className="mk-table-footer"><span>Menampilkan <strong>{INTEGER.format(filteredRows.length)}</strong> baris <strong>tahun {selectedYear}</strong></span><span><strong>{INTEGER.format(annualRowCount)}</strong> baris total</span></div></section>
+            <section className="mk-panel mk-table-panel"><div className="mk-panel-header mk-table-header"><div><h2>Semua data PPBJ Marketing</h2><p>Data tahun {selectedYear}, bersumber dari MySQL</p></div><div className="mk-table-actions"><label className="mk-search-box"><Icon name="search" size={16}/><input type="search" placeholder="Cari nomor, barang, pembuat, biaya..." value={query} onChange={(event) => setQuery(event.target.value)}/></label><button className="mk-secondary-button" onClick={exportExcel} disabled={!canExport}><Icon name="download" size={15}/>{exporting ? "Menyiapkan..." : "Export Excel"}</button></div></div><div className="mk-table-scroll"><table className="mk-table"><thead><tr><th>No. PPBJ</th><th>Tanggal</th><th>Nama barang / jasa</th><th>Pembuat</th><th>Divisi</th><th>Beban biaya</th><th>Jumlah harga</th></tr></thead><tbody>{dataPageRows.map((row) => <tr key={row.sourceRowNumber}><td><span className="mk-ppbj-id">{row.noPpbj}</span></td><td className="mk-date-cell">{formatDate(row.date)}</td><td><strong className="mk-item-name">{row.item || "Belum diisi"}</strong><span className="mk-item-sub">{row.quantity !== null ? `${INTEGER.format(row.quantity)} ${row.unit}`.trim() : "Rincian barang/jasa"}</span></td><td>{row.requester || "Belum diisi"}</td><td>{row.division || "Belum diisi"}</td><td><span className="mk-cost-tag">{row.costCenter || "Belum diisi"}</span></td><td className="mk-amount-cell">{row.amount === null ? "Belum diisi" : IDR.format(row.amount)}</td></tr>)}{filteredRows.length === 0 && <tr><td colSpan={7} className="mk-empty-row">{loadingData ? "Memuat data dari MySQL..." : "Tidak ada data untuk pencarian ini."}</td></tr>}</tbody></table></div><TablePagination totalItems={filteredRows.length} pageIndex={tablePages.data} onPageChange={(page) => setTablePage("data", page)} rightNote={`Tahun ${selectedYear}`} /></section>
           </>}
 
           {activeView === "reports" && <>
@@ -459,7 +521,7 @@ export default function DashboardPage() {
               <article className="mk-panel mk-action-card"><div className="mk-action-icon blue"><Icon name="chart" size={22}/></div><h2>Laporan Tahunan</h2><p>Unduh seluruh baris PPBJ Marketing pada tahun yang dipilih beserta 12 kolom data sumber.</p><div className="mk-action-meta"><span>Total data tahun ini</span><strong>{INTEGER.format(annualRowCount)} baris</strong></div><button className="mk-primary-button" onClick={exportYearExcel} disabled={!canExport}><Icon name="download" size={16}/>{exporting ? "Menyiapkan Excel..." : "Download Excel tahunan (12 sheet)"}</button></article>
               <article className="mk-panel mk-action-card"><div className="mk-action-icon amber"><Icon name="receipt" size={22}/></div><h2>Kualitas Data</h2><p>Periksa catatan yang perlu ditinjau sebelum laporan digunakan.</p><div className="mk-quality-list"><div><span>Tanggal tidak valid</span><strong>{INTEGER.format(data?.quality.invalidDateCount ?? 0)}</strong></div><div><span>Nominal kosong</span><strong>{INTEGER.format(data?.quality.missingAmountCount ?? 0)}</strong></div></div><button className="mk-secondary-button" onClick={() => navigateTo("settings")}>Buka status data →</button></article>
             </section>
-            <section className="mk-panel mk-table-panel"><div className="mk-panel-header mk-table-header"><div><h2>Ringkasan nilai per bulan</h2><p>Ikhtisar untuk memilih periode laporan</p></div></div><div className="mk-table-scroll"><table className="mk-table"><thead><tr><th>Bulan</th><th>Jumlah PPBJ</th><th>Baris detail</th><th>Nilai pengajuan</th><th>Aksi</th></tr></thead><tbody>{annualRows.map((stat) => <tr key={stat.monthNumber}><td><strong className="mk-item-name">{stat.month} {selectedYear}</strong></td><td>{INTEGER.format(stat.count)}</td><td>{INTEGER.format(stat.rowCount)}</td><td className="mk-amount-cell">{IDR.format(stat.amount)}</td><td><button className="mk-table-link" onClick={() => { setPeriod(`${selectedYear}-${String(stat.monthNumber).padStart(2, "0")}`); navigateTo("monthly"); }}>Buka rekap →</button></td></tr>)}</tbody></table></div></section>
+            <section className="mk-panel mk-table-panel"><div className="mk-panel-header mk-table-header"><div><h2>Ringkasan nilai per bulan</h2><p>Ikhtisar untuk memilih periode laporan</p></div></div><div className="mk-table-scroll"><table className="mk-table"><thead><tr><th>Bulan</th><th>Jumlah PPBJ</th><th>Baris detail</th><th>Nilai pengajuan</th><th>Aksi</th></tr></thead><tbody>{reportPageRows.map((stat) => <tr key={stat.monthNumber}><td><strong className="mk-item-name">{stat.month} {selectedYear}</strong></td><td>{INTEGER.format(stat.count)}</td><td>{INTEGER.format(stat.rowCount)}</td><td className="mk-amount-cell">{IDR.format(stat.amount)}</td><td><button className="mk-table-link" onClick={() => { setPeriod(`${selectedYear}-${String(stat.monthNumber).padStart(2, "0")}`); navigateTo("monthly"); }}>Buka rekap →</button></td></tr>)}</tbody></table></div><TablePagination totalItems={annualRows.length} pageIndex={tablePages.reports} onPageChange={(page) => setTablePage("reports", page)} rightNote={`Tahun ${selectedYear}`} /></section>
           </>}
 
           {activeView === "settings" && <>

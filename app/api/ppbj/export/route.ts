@@ -96,7 +96,7 @@ function buildMonthSheet(
   rows: PpbjExportRow[],
 ) {
   const worksheet = workbook.addWorksheet(MONTHS[monthNumber - 1], {
-    properties: { tabColor: COLORS.greenMid },
+    properties: { tabColor: { argb: `FF${COLORS.greenMid}` } },
     pageSetup: {
       paperSize: 9,
       orientation: "landscape",
@@ -299,6 +299,7 @@ export async function GET(request: Request) {
        WHERE source_row_number IS NOT NULL
          AND is_active = 1
          AND LOWER(TRIM(COALESCE(divisi, ''))) = 'marketing'
+         AND NULLIF(TRIM(COALESCE(no_ppbj, '')), '') IS NOT NULL
          AND tanggal >= ? AND tanggal < ?
        ORDER BY tanggal ASC, no_ppbj ASC, source_row_number ASC`,
       [rangeStart, rangeEnd],
@@ -332,13 +333,13 @@ export async function GET(request: Request) {
     }
 
     const buffer = await workbook.xlsx.writeBuffer();
-    const arrayBuffer = new ArrayBuffer(buffer.byteLength);
-    new Uint8Array(arrayBuffer).set(buffer);
+    // ExcelJS returns a Node-compatible binary buffer. Pass it directly to Response;
+    // the cast bridges differing Buffer definitions between ExcelJS and TypeScript DOM types.
     const filename = scope === "year"
       ? `rekap-ppbj-marketing-tahunan-${year}.xlsx`
       : `rekap-ppbj-marketing-${year}-${String(month).padStart(2, "0")}.xlsx`;
 
-    return new Response(arrayBuffer, {
+    return new Response(buffer as unknown as BodyInit, {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

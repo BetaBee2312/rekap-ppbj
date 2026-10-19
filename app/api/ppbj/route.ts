@@ -36,12 +36,13 @@ export async function GET(request: Request) {
   const yearEnd = `${year + 1}-01-01`;
   const rangeStart = scope === "year" ? yearStart : startDate;
   const rangeEnd = scope === "year" ? yearEnd : endDate;
-  const whereMarketing = "source_row_number IS NOT NULL AND is_active = 1 AND LOWER(TRIM(COALESCE(divisi, ''))) = 'marketing'";
+  const whereMarketing = "source_row_number IS NOT NULL AND is_active = 1 AND LOWER(TRIM(COALESCE(divisi, ''))) = 'marketing' AND NULLIF(TRIM(COALESCE(no_ppbj, '')), '') IS NOT NULL";
 
   try {
     const pool = getDbPool();
     const [kpiRows] = await pool.query<RowDataPacket[]>(
       `SELECT COUNT(DISTINCT no_ppbj) AS ppbj_count,
+              COUNT(DISTINCT CASE WHEN jumlah_harga IS NOT NULL THEN NULLIF(TRIM(no_ppbj), '') END) AS average_ppbj_count,
               COUNT(*) AS row_count,
               COALESCE(SUM(jumlah_harga), 0) AS total_amount,
               SUM(CASE WHEN jumlah_harga IS NULL THEN 1 ELSE 0 END) AS missing_amount_count
@@ -116,7 +117,7 @@ export async function GET(request: Request) {
 
     const [yearRows] = await pool.query<RowDataPacket[]>(
       `SELECT DISTINCT YEAR(tanggal) AS year FROM tb_ppbj
-       WHERE source_row_number IS NOT NULL AND is_active = 1 AND tanggal IS NOT NULL ORDER BY year DESC`,
+       WHERE source_row_number IS NOT NULL AND is_active = 1 AND tanggal IS NOT NULL AND NULLIF(TRIM(COALESCE(no_ppbj, '')), '') IS NOT NULL ORDER BY year DESC`,
     );
     const years = Array.from(new Set([new Date().getFullYear(), year, ...yearRows.map((row) => Number(row.year))]))
       .filter((value) => Number.isInteger(value) && value >= 2000 && value <= 2100)
@@ -130,6 +131,7 @@ export async function GET(request: Request) {
     );
     const sync = syncRows[0] ?? {};
     const ppbjCount = toNumber(kpi.ppbj_count);
+    const averagePpbjCount = toNumber(kpi.average_ppbj_count);
     const totalAmount = toNumber(kpi.total_amount);
 
     return NextResponse.json({
@@ -141,7 +143,8 @@ export async function GET(request: Request) {
         ppbjCount,
         rowCount: toNumber(kpi.row_count),
         totalAmount,
-        averageAmount: ppbjCount > 0 ? totalAmount / ppbjCount : 0,
+        averageAmount: averagePpbjCount > 0 ? totalAmount / averagePpbjCount : 0,
+        averagePpbjCount,
         missingAmountCount: toNumber(kpi.missing_amount_count),
       },
       monthlyStats,
