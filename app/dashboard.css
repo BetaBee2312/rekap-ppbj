@@ -5,10 +5,21 @@
 .mk-app-shell { min-height:100vh; display:flex; background:var(--mk-page); color:var(--mk-ink); font-family:'DM Sans',sans-serif; font-size:13px; }
 .mk-sidebar { width:248px; flex:0 0 248px; background:#142a22; color:#eff7f2; min-height:100vh; display:flex; flex-direction:column; padding:27px 16px 17px; position:relative; }
 .mk-brand { display:flex; align-items:center; gap:11px; padding:0 9px 34px; }
-.mk-brand-mark { width:38px; height:38px; border-radius:12px; background:#b2d9bd; display:grid; place-items:center; position:relative; overflow:hidden; }
-.mk-brand-mark:before { content:""; width:24px; height:24px; border:2px solid #183f31; border-radius:7px 7px 12px 7px; transform:rotate(-12deg); position:absolute; }
-.mk-brand-mark:after { content:""; height:17px; width:2px; background:#183f31; position:absolute; transform:rotate(40deg); }
-.mk-brand-mark span { width:7px; height:7px; background:#183f31; border-radius:50%; position:absolute; top:9px; right:7px; }
+.mk-brand-mark {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: #b2d9bd;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.mk-brand-mark img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
 .mk-brand-name { font-family:'Manrope',sans-serif; font-size:19px; font-weight:800; letter-spacing:-.8px; line-height:1.2; }
 .mk-brand-name span { color:#a4d6b2; }
 .mk-brand-subtitle { margin-top:4px; color:#8ca69a; font-size:9px; font-weight:700; letter-spacing:1.65px; }

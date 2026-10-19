@@ -408,7 +408,10 @@ export default function DashboardPage() {
   return (
     <div className="mk-app-shell">
       <aside className="mk-sidebar">
-        <div className="mk-brand"><div className="mk-brand-mark"><span/></div><div><div className="mk-brand-name">marketing<span>.</span></div><div className="mk-brand-subtitle">OPERATIONS HUB</div></div></div>
+        <div className="mk-brand">
+          <div className="mk-brand-mark">
+  <img src="/favicon.ico" alt="Yomart" />
+</div><div><div className="mk-brand-name">Rekap PPBJ<span>.</span></div><div className="mk-brand-subtitle">DIV. MARKETING</div></div></div>
         <div className="mk-sidebar-label">WORKSPACE</div>
         <nav className="mk-nav" aria-label="Navigasi utama">
           {NAV_ITEMS.filter((item) => item.group === "workspace").map((item) => <button key={item.key} type="button" title={VIEW_META[item.key].label} aria-current={activeView === item.key ? "page" : undefined} className={`mk-nav-item ${activeView === item.key ? "active" : ""}`} onClick={() => navigateTo(item.key)}><Icon name={item.icon} size={18}/><span>{VIEW_META[item.key].label}</span>{activeView === item.key && <span className="mk-nav-indicator"/>}</button>)}
@@ -425,14 +428,14 @@ export default function DashboardPage() {
             <div className="mk-source-progress"><span style={{ width: syncing ? "65%" : dbOnline ? "100%" : "12%" }}/></div>
             <div className="mk-source-footer"><span>Sinkron terakhir</span><b>{formatSyncDate(data?.sync.lastSuccessAt ?? null)}</b></div>
           </div>
-          <div className="mk-profile"><div className="mk-avatar">MK</div><div className="mk-profile-info"><strong>Divisi Marketing</strong><span>Workspace internal</span></div><span className="mk-profile-menu">···</span></div>
+          <div className="mk-profile"><div className="mk-profile-info"><strong>Divisi Marketing</strong><span>Workspace internal</span></div><span className="mk-profile-menu">···</span></div>
         </div>
       </aside>
 
       <main className="mk-main" id="dashboard">
         <header className="mk-topbar">
           <div className="mk-breadcrumb"><span>Workspace</span><span className="mk-breadcrumb-slash">/</span><strong>{viewMeta.label}</strong></div>
-          <div className="mk-topbar-actions"><span className={`mk-preview-badge ${syncing ? "is-syncing" : syncError ? "is-offline" : dbOnline ? "is-live" : "is-offline"}`}><span/>{syncing ? "SYNCING" : syncError ? "SYNC ERROR" : dbOnline ? "LIVE · MYSQL" : "OFFLINE"}</span><button className="mk-icon-button" aria-label="Notifikasi" title="Notifikasi"><Icon name="bell" size={18}/><i/></button><div className="mk-top-avatar">MK</div></div>
+          <div className="mk-topbar-actions"><span className={`mk-preview-badge ${syncing ? "is-syncing" : syncError ? "is-offline" : dbOnline ? "is-live" : "is-offline"}`}><span/>{syncing ? "SYNCING" : syncError ? "SYNC ERROR" : dbOnline ? "LIVE · MYSQL" : "OFFLINE"}</span></div>
         </header>
         <nav className="mk-mobile-nav" aria-label="Navigasi mobile">
           {NAV_ITEMS.map((item) => <button key={item.key} type="button" aria-current={activeView === item.key ? "page" : undefined} className={activeView === item.key ? "active" : ""} onClick={() => navigateTo(item.key)}><Icon name={item.icon} size={15}/><span>{VIEW_META[item.key].label}</span></button>)}
