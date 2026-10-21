@@ -1,70 +1,100 @@
-# Marketing Dashboard — Google Sheets → MySQL → Next.js
+# Rekap PPBJ Marketing
 
-Versi ini mengganti data demo dengan data yang benar-benar dibaca dari MySQL. Setiap kali dashboard dibuka, server Next.js akan meminta data terbaru dari Google Sheets, lalu melakukan upsert ke MySQL. Dashboard mengambil KPI, grafik, komposisi beban biaya, dan tabel dari MySQL.
+Dashboard untuk memantau permintaan PPBJ Marketing, nilai biaya, tren bulanan/tahunan, dan detail baris transaksi. Data terbaru dibaca dari Google Sheets, dinormalisasi di server Next.js, lalu disinkronkan ke MySQL sebelum ditampilkan dan diekspor.
 
-## Nama database
+## Fitur
 
-Aplikasi menggunakan database `db_ppbj_rekap` dan tabel data utama `tb_ppbj`. Tabel pendukung sinkronisasi bernama `tb_ppbj_sync_history` dan `tb_ppbj_sync_state`.
+- Dashboard KPI: jumlah PPBJ, jumlah baris, total biaya, rata-rata, serta indikator kualitas data.
+- Rekap bulanan dan tahunan, tren 12 bulan, dan komposisi beban biaya.
+- Penjelajahan data PPBJ dengan pencarian dan filter periode.
+- Sinkronisasi Google Sheets ke MySQL melalui service account dengan akses baca.
+- Upsert data agar pemuatan ulang tidak membuat duplikasi.
+- Riwayat perubahan dan arsip untuk baris yang diubah atau tidak lagi aktif di sumber.
+- Perlindungan terhadap penyusutan jumlah baris sumber yang tidak wajar; sinkronisasi dapat dihentikan agar penghapusan data besar tidak diterapkan tanpa pemeriksaan.
+- Ekspor Excel satu periode atau laporan tahunan dengan 12 worksheet bulanan.
 
-## Alur sinkronisasi
+## Teknologi
 
-1. Browser membuka dashboard.
-2. Next.js membaca rentang sumber Google Sheets menggunakan service account dengan izin baca saja.
-3. Baris PPBJ dinormalisasi lalu disimpan dengan `INSERT ... ON DUPLICATE KEY UPDATE`; pemuatan ulang tidak membuat baris ganda.
-4. Dashboard mengambil data dari tabel MySQL `tb_ppbj`.
-5. Perubahan/penghapusan sumber dicatat di `tb_ppbj_sync_history`. Baris yang hilang dari sheet ditandai tidak aktif, bukan dihapus fisik.
+- Next.js 16.4.x, React 19, TypeScript
+- MySQL melalui `mysql2/promise`
+- Google Sheets API melalui `googleapis`
+- ExcelJS untuk file Excel
+- Tailwind CSS v4 dan CSS dashboard
 
-Ada perlindungan tambahan: jika sumber tiba-tiba menyusut menjadi kurang dari 50% jumlah baris aktif di database (dan ada minimal 10 baris sebelumnya), sinkronisasi otomatis dihentikan agar kekosongan/penghapusan tidak langsung diterapkan. Dashboard menampilkan peringatan dan tombol konfirmasi; konfirmasi hanya dilakukan setelah pemeriksaan manual. Permintaan sinkronisasi duplikat dalam 10 detik memakai hasil sinkronisasi terakhir untuk mengurangi permintaan berulang saat React Strict Mode atau beberapa tab terbuka.
+## Alur data
 
-## File
+1. Dashboard meminta sinkronisasi melalui `POST /api/ppbj/sync`.
+2. Server mengakses rentang Google Sheets memakai service account dengan scope baca saja.
+3. Header dan baris spreadsheet dinormalisasi, termasuk tanggal, nominal, dan kolom PPBJ.
+4. Baris dengan `Divisi = Marketing` disimpan ke MySQL. Kunci sumber menggunakan nomor baris dan hash isi.
+5. Dashboard membaca data agregasi dari MySQL, bukan menghitung seluruh dashboard di browser.
+6. Perubahan dan arsip disimpan di tabel riwayat sinkronisasi.
 
-- `app/page.tsx` — dashboard dan navigasi: Dashboard, Rekap Bulanan, Rekap Tahunan, Data PPBJ, Export Laporan, dan Sinkronisasi; saat mount memulai sinkronisasi.
-- `app/dashboard.css` — styling dashboard.
-- `app/api/ppbj/route.ts` — endpoint baca agregasi dari MySQL; gunakan `?period=2026-10` untuk rekap bulanan atau `?period=2026-10&scope=year` untuk ringkasan dan baris seluruh tahun 2026.
-- `app/api/ppbj/sync/route.ts` — endpoint sinkronisasi sumber Google Sheets ke MySQL.
-- `app/api/ppbj/export/route.ts` — generator file Excel berformat rapi; ekspor tahunan menghasilkan 12 worksheet per bulan.
-- `lib/db.ts` — connection pool `mysql2/promise`.
-- `lib/ppbj-sync.ts` — baca Google Sheets, parse tanggal/nominal, upsert dan arsip riwayat.
-- `database/schema.sql` — schema untuk database baru/kosong.
-- `database/migrate_existing.sql` — migrasi bila tabel `tb_ppbj` lama sudah dibuat dari SQL awal.
-- `.env.example` — contoh konfigurasi, tanpa kredensial nyata.
+Sumber spreadsheet harus memiliki header yang dibutuhkan dalam rentang yang dikonfigurasi. Periksa pesan validasi bila nama kolom atau rentang berubah.
 
-## Navigasi dashboard
+## Struktur proyek
 
-Semua menu sidebar sekarang aktif:
-
-- **Dashboard** — KPI periode terpilih dan tren satu tahun.
-- **Rekap Bulanan** — KPI, komposisi beban biaya, dan rincian untuk bulan terpilih.
-- **Rekap Tahunan** — KPI agregat satu tahun, tren 12 bulan, dan tabel ringkasan per bulan. Pilih batang grafik atau tautan pada tabel untuk membuka bulan tertentu.
-- **Data PPBJ** — pencarian dan tabel baris PPBJ Marketing sepanjang tahun terpilih.
-- **Export Laporan** — laporan Excel berdesain rapi dengan judul, periode, ringkasan KPI, header tabel, format tanggal/Rupiah, filter, baris total, dan pengaturan cetak landscape. Ekspor tahunan menghasilkan 12 worksheet, Januari sampai Desember; bulan tanpa transaksi tetap memiliki sheet kosong yang diberi keterangan.
-- **Sinkronisasi** — status Google Sheets → MySQL, jumlah baris sinkron/berubah/diarsipkan, serta tindakan sinkronisasi manual.
-
-Pada layar kecil, navigasi tersedia dalam bentuk bar menu yang dapat digeser secara horizontal. API bulanan dan tahunan memakai range tanggal yang sesuai, tetapi sumbernya tetap satu tabel `tb_ppbj`.
-
-## 1. Pilih schema yang sesuai
-
-### Database baru atau masih kosong
-
-Jalankan `database/schema.sql` melalui phpMyAdmin atau MySQL client. File ini membuat database `db_ppbj_rekap`, tabel `tb_ppbj`, tabel riwayat, dan status sinkronisasi.
-
-### Sudah membuat tabel `tb_ppbj` dari SQL versi sebelumnya
-
-Jangan jalankan `schema.sql` saja karena `CREATE TABLE IF NOT EXISTS` tidak menambah kolom pada tabel yang sudah ada. Periksa backup terlebih dahulu, lalu jalankan `database/migrate_existing.sql`. Script migrasi ini menambahkan metadata sinkronisasi. Data lama yang tidak mempunyai `source_row_number` tetap tersimpan, tetapi aplikasi tidak mencampurnya dengan baris yang disinkronkan dari spreadsheet.
-
-## 2. Pasang dependensi
-
-Di folder utama proyek Next.js yang sudah kamu punya:
-
-```bash
-npm install mysql2 googleapis exceljs
+```text
+app/
+  page.tsx                    # Dashboard dan navigasi
+  dashboard.css               # Styling dashboard
+  api/ppbj/route.ts            # Data dan agregasi PPBJ
+  api/ppbj/sync/route.ts       # Sinkronisasi Google Sheets ke MySQL
+  api/ppbj/export/route.ts     # Ekspor laporan Excel
+lib/
+  db.ts                        # Pool koneksi MySQL
+  ppbj-sync.ts                 # Baca, normalisasi, upsert, dan arsip data
+database/
+  schema.sql                   # Skema database baru
+  migrate_existing.sql         # Perubahan untuk tabel lama
+.env.example                   # Template environment tanpa secret nyata
 ```
 
-Salin file `app/`, `lib/`, dan `database/` ke proyek. Salin `.env.example` sebagai `.env.local`. Kalau proyek menggunakan `src/app`, taruh `app/` di `src/app` dan `lib/` di `src/lib` agar jalur relatif API tetap sesuai.
+## Persyaratan
 
-## 3. Konfigurasi `.env.local`
+- Node.js 20.9 atau lebih baru.
+- npm.
+- MySQL/MariaDB.
+- Google Cloud project dengan Google Sheets API aktif.
+- Service account yang memiliki akses **Viewer** ke spreadsheet sumber.
 
-```env
+## Menyiapkan database
+
+Pilih langkah sesuai kondisi database dan lakukan backup sebelum mengubah struktur.
+
+### Database baru atau kosong
+
+Jalankan `database/schema.sql` melalui MySQL client atau phpMyAdmin. Skema membuat database `db_ppbj_rekap`, tabel PPBJ, riwayat sinkronisasi, dan status sinkronisasi.
+
+### Sudah ada tabel `tb_ppbj` dari versi sebelumnya
+
+Periksa terlebih dahulu apakah tabel lama punya kolom metadata sinkronisasi. Setelah backup, tinjau dan jalankan `database/migrate_existing.sql` jika sesuai. Jangan mengasumsikan `CREATE TABLE IF NOT EXISTS` akan menambahkan kolom ke tabel yang sudah dibuat.
+
+Nama database aktual ditentukan melalui `DB_NAME`, jadi sesuaikan schema dan environment dengan instalasi yang digunakan.
+
+## Menyiapkan Google Sheets API
+
+1. Aktifkan Google Sheets API di Google Cloud.
+2. Buat service account dan simpan private key dengan aman.
+3. Bagikan spreadsheet ke email service account dengan izin Viewer.
+4. Isi spreadsheet ID, rentang header/data, email service account, dan private key di `.env.local`.
+5. Pastikan rentang memulai header yang sesuai. Nilai bawaan template adalah `Sheet1!A4:L`; ganti nama tab/rentang bila spreadsheet berbeda.
+
+**Jangan commit service-account key atau file `.env.local` ke GitHub.** Jika key pernah terekspos, cabut dan buat key baru.
+
+## Menjalankan lokal
+
+Clone repo dan pasang dependensi:
+
+```bash
+git clone https://github.com/BetaBee2312/rekap-ppbj.git
+cd rekap-ppbj
+npm install
+```
+
+Salin `.env.example` menjadi `.env.local` lalu isi nilainya:
+
+```dotenv
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_USER=root
@@ -72,47 +102,74 @@ DB_PASSWORD=
 DB_NAME=db_ppbj_rekap
 DB_CONNECTION_LIMIT=10
 
-GOOGLE_SHEETS_SPREADSHEET_ID=1lz8Sw2-n6zZBH1QjfLKDb9vNgf-d3mp4PAQ-D2sBe90
+GOOGLE_SHEETS_SPREADSHEET_ID=isi_spreadsheet_id
 GOOGLE_SHEETS_RANGE=Sheet1!A4:L
-GOOGLE_SERVICE_ACCOUNT_EMAIL=email-service-account-dari-json
-GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nISI_KEY_BARU\n-----END PRIVATE KEY-----\n"
+GOOGLE_SERVICE_ACCOUNT_EMAIL=service-account-email
+GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nGANTI_DENGAN_PRIVATE_KEY\n-----END PRIVATE KEY-----\n"
 ```
 
-- Pastikan nama tab Google Sheet benar-benar `Sheet1`. Kalau bukan, ubah `GOOGLE_SHEETS_RANGE` memakai nama tab yang benar dan tetap dimulai dari baris header, misalnya `'Nama Tab'!A4:L`.
-- Buat service account di Google Cloud, aktifkan Google Sheets API, dan bagikan spreadsheet sebagai **Viewer** ke email service account.
-- Gunakan private key baru setelah merotasi key yang pernah terekspos. Jangan mengirim private key lewat chat dan jangan commit `.env.local` ke GitHub.
-- Untuk Laragon lokal biasanya `root` dengan password kosong; sesuaikan jika konfigurasi MySQL kamu berbeda. Di production, gunakan database user terpisah dengan izin minimum, jangan memakai `root`.
+Di local Laragon, MySQL sering memakai `root` dan password kosong, tetapi gunakan nilai yang benar untuk lingkungan kamu. Untuk produksi, buat user database khusus dengan hak minimum.
 
-## 4. Jalankan dan uji
+Jalankan development server:
 
 ```bash
 npm run dev
 ```
 
-Buka `http://localhost:3000`. Saat halaman dimuat, sinkronisasi dimulai otomatis. Untuk pemeriksaan terpisah:
+Buka [http://localhost:3000](http://localhost:3000).
 
-- `http://localhost:3000/api/ppbj?period=2026-10` — baca rekap periode dari MySQL.
-- `http://localhost:3000/api/ppbj/export?period=2026-10&scope=month` — unduh Excel satu bulan.
-- `http://localhost:3000/api/ppbj/export?period=2026-10&scope=year` — unduh Excel dengan 12 sheet bulanan untuk tahun 2026.
-- Sinkronisasi menggunakan `POST /api/ppbj/sync`; jangan membuka endpoint itu sebagai halaman GET.
+## Perintah npm
 
-Syaratnya MySQL harus berjalan, schema harus sudah dibuat, variabel `.env.local` lengkap, dan spreadsheet dibagikan ke service account.
+| Perintah | Fungsi |
+| --- | --- |
+| `npm run dev` | Menjalankan Next.js dengan Webpack |
+| `npm run build` | Membuat build produksi dengan Webpack |
+| `npm run start` | Menjalankan build produksi |
+| `npm run lint` | Menjalankan ESLint |
 
-## Catatan integritas data
+Sebelum menjalankan server produksi, jalankan `npm run build`.
 
-- Hanya baris dengan `Divisi = Marketing` yang disalin ke database; baris divisi lain tidak diimpor. Data PPBJ dapat terdiri dari beberapa baris untuk satu `No PPBJ`; setiap baris dipetakan menggunakan nomor baris fisik sumber, bukan `No PPBJ` sebagai kunci unik.
-- Karena spreadsheet belum memiliki ID permanen per baris, `source_row_number` digunakan untuk mengidentifikasi sumber. Jika baris disisipkan, dihapus, atau diurut ulang, snapshot lama disimpan dalam `tb_ppbj_sync_history`, sedangkan isi aktif mengikuti sheet saat ini.
-- Baris dengan tanggal yang tidak valid tetap disimpan dengan `tanggal = NULL`, berikut nilai mentahnya. Baris tersebut tidak masuk ke rekap bulanan sampai tanggal diperbaiki.
-- Jika sumber kosong atau tidak ada `No PPBJ`, sinkronisasi gagal dengan aman dan tidak menonaktifkan data di database.
-- Data bisnis tersimpan di `tb_ppbj`; perubahan dan penghapusan disimpan di `tb_ppbj_sync_history`. Jadwalkan backup database harian ke lokasi terpisah; tabel riwayat bukan pengganti backup.
-- Dashboard ini belum memiliki login/role. Jangan publikasikan ke internet berisi data sensitif sebelum autentikasi dan otorisasi ditambahkan.
+## Endpoint API
 
+| Method | Endpoint | Kegunaan |
+| --- | --- | --- |
+| GET | `/api/ppbj?period=YYYY-MM` | Data dan ringkasan periode bulanan |
+| GET | `/api/ppbj?period=YYYY-MM&scope=year` | Ringkasan tahunan untuk tahun yang dipilih |
+| POST | `/api/ppbj/sync` | Menjalankan sinkronisasi Sheets ke MySQL |
+| GET | `/api/ppbj/export?period=YYYY-MM&scope=month` | Ekspor Excel bulanan |
+| GET | `/api/ppbj/export?period=YYYY-MM&scope=year` | Ekspor Excel tahunan dengan 12 worksheet |
 
-## Kompatibilitas Next.js 16 dengan `cacheComponents`
+Tahun/periode pada query harus disesuaikan dengan data yang ingin diperiksa.
 
-Route Handler tidak mengekspor `runtime` atau `dynamic`. Dengan `cacheComponents` aktif, konfigurasi route-segment tersebut tidak kompatibel; Node.js adalah runtime default. Jika muncul error konfigurasi serupa, pastikan `export const runtime = "nodejs"` dan `export const dynamic = "force-dynamic"` tidak ada di file route.
+## Data dan integritas
 
+- Tabel utama: `tb_ppbj`.
+- Tabel pendukung: `tb_ppbj_sync_history` dan `tb_ppbj_sync_state`.
+- Setiap baris sumber diidentifikasi memakai `source_row_number` karena spreadsheet tidak memiliki ID permanen per baris.
+- Baris dengan tanggal yang belum bisa diparse tetap dapat disimpan dengan nilai tanggal mentah untuk pemeriksaan. Baris tersebut tidak masuk agregasi periode sampai tanggalnya valid.
+- Jika sumber kosong, header tidak cocok, atau jumlah data turun tajam, sinkronisasi dirancang untuk gagal secara aman daripada langsung menonaktifkan banyak baris lama.
+- Tabel riwayat mencatat perubahan, tetapi **bukan pengganti backup database**. Buat backup terjadwal ke lokasi terpisah.
 
-## Catatan kompatibilitas Next.js 16 + cacheComponents
+## Keamanan dan deployment
 
-Route Handler tidak mengekspor `runtime` atau `dynamic`. Untuk nilai periode awal, komponen dashboard menghitung bulan berjalan di `useEffect` setelah hydration, bukan ketika Client Component sedang diprerender.
+- Dashboard ini tidak memiliki autentikasi/role aplikasi dalam implementasi saat ini. Jangan memublikasikan dashboard berisi data sensitif ke internet tanpa menambah autentikasi dan otorisasi.
+- Simpan kredensial database dan private key Google hanya di environment server.
+- Gunakan HTTPS dan batasi akses jaringan ke server database.
+- Pastikan hosting memiliki akses jaringan ke Google Sheets API dan MySQL.
+- Jika host menggunakan filesystem sementara, konfigurasi data backup/ekspor agar tetap tersedia sesuai kebutuhan operasional.
+
+## Troubleshooting
+
+**MySQL tidak dapat dihubungi:** periksa service MySQL dan seluruh variabel `DB_*`.
+
+**Konfigurasi Google Sheets tidak lengkap:** periksa `GOOGLE_SHEETS_SPREADSHEET_ID`, `GOOGLE_SERVICE_ACCOUNT_EMAIL`, dan `GOOGLE_PRIVATE_KEY`.
+
+**Header tidak lengkap:** cocokkan nama header sheet dan `GOOGLE_SHEETS_RANGE` dengan kolom PPBJ yang dibutuhkan.
+
+**Akses spreadsheet ditolak:** pastikan spreadsheet dibagikan sebagai Viewer ke service account yang benar.
+
+**Sinkronisasi dihentikan karena penyusutan data:** periksa spreadsheet dan rentang sumber secara manual sebelum melakukan sinkronisasi paksa/konfirmasi. Jangan mengabaikan peringatan tanpa mengetahui penyebab perubahan jumlah baris.
+
+## AI-assisted development
+
+Proyek ini dikembangkan dengan bantuan ChatGPT (OpenAI) untuk implementasi, debugging, peninjauan kode, dan dokumentasi. Commit tetap diatribusikan ke akun GitHub yang menerbitkannya.
